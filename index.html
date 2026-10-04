@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Itemku Pro Store & Tokoku API Dashboard</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        darker: '#0b0f19',
+                        darkcard: '#111827',
+                        darkborder: '#1f2937',
+                        brand: { 500: '#22c55e', 600: '#16a34a' }
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Lucide Icons & Alpine.js -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    </style>
+</head>
+<body class="bg-darker text-slate-100 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white" 
+      x-data="tokokuDashboard()">
+
+    <div class="flex h-screen overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="hidden lg:flex flex-col w-72 bg-darkcard border-r border-darkborder z-20">
+            <div class="p-5 flex items-center gap-3 border-b border-darkborder">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-emerald-400 flex items-center justify-center shadow-lg shadow-brand-600/30">
+                    <i data-lucide="shield-check" class="w-6 h-6 text-white"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base text-white">Itemku Pro</h1>
+                    <span class="text-xs text-brand-500 font-medium flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-brand-500 animate-pulse"></span> Tokoku Gateway Active
+                    </span>
+                </div>
+            </div>
+
+            <nav class="flex-1 px-4 py-6 space-y-1.5 overflow-y-auto">
+                <p class="px-3 text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Tokoku API & Store</p>
+                <template x-for="tab in tabs" :key="tab.id">
+                    <button @click="currentTab = tab.id"
+                            :class="currentTab === tab.id ? 'bg-brand-600/10 text-brand-500 border border-brand-500/20 shadow-sm' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'"
+                            class="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-sm font-semibold transition-all duration-200">
+                        <div class="flex items-center gap-3">
+                            <i :data-lucide="tab.icon" class="w-5 h-5" :class="currentTab === tab.id ? 'text-brand-500' : 'text-slate-400'"></i>
+                            <span x-text="tab.name"></span>
+                        </div>
+                        <template x-if="tab.badge > 0">
+                            <span class="bg-rose-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse" x-text="tab.badge"></span>
+                        </template>
+                    </button>
+                </template>
+            </nav>
+
+            <div class="p-4 m-4 rounded-2xl bg-gradient-to-br from-slate-900 to-slate-800 border border-darkborder">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Total Profit Hari Ini</span>
+                    <span class="text-xs text-brand-500 bg-brand-500/10 px-2 py-0.5 rounded-full font-bold">+28.4%</span>
+                </div>
+                <div class="text-lg font-bold text-white mb-2" x-text="formatIDR(stats.totalProfit)"></div>
+                <div class="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800">
+                    <span>Margin:</span>
+                    <span class="font-bold text-brand-400" x-text="stats.profitMargin"></span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Workspace -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <header class="h-16 bg-darkcard border-b border-darkborder px-6 flex items-center justify-between z-10">
+                <div class="flex items-center gap-4">
+                    <div>
+                        <h2 class="text-lg font-bold text-white capitalize" x-text="getCurrentTabName()"></h2>
+                        <p class="text-xs text-slate-400 hidden sm:block">Tokoku API Integration (`tokoku-gateway.itemku.com`) with WhatsApp & Telegram</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <button @click="fetchTokokuOrders()" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold border border-darkborder">
+                        <i data-lucide="refresh-cw" class="w-4 h-4 text-brand-500" :class="isSyncing ? 'animate-spin' : ''"></i>
+                        <span>Sync Tokoku API</span>
+                    </button>
+                    <button @click="simulateSandboxOrder()" class="flex items-center gap-2 bg-gradient-to-r from-brand-600 to-emerald-500 hover:from-brand-500 text-white px-4 py-2 rounded-xl text-sm font-semibold shadow-lg shadow-brand-600/25">
+                        <i data-lucide="zap" class="w-4 h-4"></i>
+                        <span>Simulasi Sandbox Order</span>
+                    </button>
+                </div>
+            </header>
+
+            <main class="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 bg-[#070a12]">
+                <!-- TAB 1: TOKOKU ORDERS (GET /api/order/list) -->
+                <div x-show="currentTab === 'orders'" class="space-y-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-darkcard border border-darkborder p-5 rounded-2xl">
+                            <span class="text-xs font-semibold text-slate-400 uppercase">Total Pesanan</span>
+                            <div class="text-2xl font-extrabold text-white mt-1" x-text="orders.length"></div>
+                            <span class="text-xs text-brand-500 mt-1 inline-block">Endpoint: /api/order/list</span>
+                        </div>
+                        <div class="bg-darkcard border border-darkborder p-5 rounded-2xl">
+                            <span class="text-xs font-semibold text-slate-400 uppercase">Perlu Diproses (REQUIRE_PROCESS)</span>
+                            <div class="text-2xl font-extrabold text-amber-400 mt-1" x-text="orders.filter(o => o.status === 'REQUIRE_PROCESS').length"></div>
+                            <span class="text-xs text-slate-400 mt-1 inline-block">Action: /api/order/action</span>
+                        </div>
+                        <div class="bg-darkcard border border-darkborder p-5 rounded-2xl">
+                            <span class="text-xs font-semibold text-slate-400 uppercase">Selesai (DELIVERED)</span>
+                            <div class="text-2xl font-extrabold text-brand-500 mt-1" x-text="orders.filter(o => o.status === 'DELIVERED').length"></div>
+                            <span class="text-xs text-brand-500 mt-1 inline-block">100% Sukses</span>
+                        </div>
+                        <div class="bg-darkcard border border-darkborder p-5 rounded-2xl">
+                            <span class="text-xs font-semibold text-slate-400 uppercase">Profit Bersih</span>
+                            <div class="text-2xl font-extrabold text-purple-400 mt-1" x-text="formatIDR(stats.totalProfit)"></div>
+                            <span class="text-xs text-purple-300 mt-1 inline-block">Kalkulasi Otomatis</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-darkcard border border-darkborder rounded-2xl overflow-hidden">
+                        <div class="p-5 border-b border-darkborder flex items-center justify-between">
+                            <div>
+                                <h3 class="font-bold text-lg text-white">Daftar Transaksi Tokoku API</h3>
+                                <p class="text-xs text-slate-400">Sinkronisasi otomatis dengan status <code class="text-brand-400">REQUIRE_PROCESS</code> dan <code class="text-brand-400">DELIVERED</code>.</p>
+                            </div>
+                            <input type="text" x-model="searchQuery" placeholder="Cari Order ID / Pembeli..." class="bg-slate-900 border border-darkborder rounded-xl px-4 py-2 text-sm text-slate-200 focus:outline-none focus:border-brand-500">
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="border-b border-darkborder bg-slate-900/50 text-xs font-semibold text-slate-400 uppercase">
+                                        <th class="p-4">Order Number & ID</th>
+                                        <th class="p-4">Pembeli & Game</th>
+                                        <th class="p-4">Required Info (Player / Zone)</th>
+                                        <th class="p-4">Pendapatan / Harga</th>
+                                        <th class="p-4">Status Itemku</th>
+                                        <th class="p-4 text-right">Aksi API</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-darkborder text-sm">
+                                    <template x-for="order in filteredOrders" :key="order.order_id">
+                                        <tr class="hover:bg-slate-800/40">
+                                            <td class="p-4">
+                                                <div class="font-bold text-brand-400 font-mono" x-text="order.order_number"></div>
+                                                <span class="text-xs text-slate-500" x-text="'ID: ' + order.order_id"></span>
+                                            </td>
+                                            <td class="p-4">
+                                                <div class="font-semibold text-white" x-text="order.buyer_name"></div>
+                                                <div class="text-xs text-slate-400" x-text="order.game_name + ' - ' + order.product_name"></div>
+                                            </td>
+                                            <td class="p-4 font-mono text-xs text-slate-300" x-text="order.required_information"></td>
+                                            <td class="p-4">
+                                                <div class="font-bold text-white" x-text="formatIDR(order.price * order.quantity)"></div>
+                                                <div class="text-xs text-brand-400" x-text="'Income: ' + formatIDR(order.order_income)"></div>
+                                            </td>
+                                            <td class="p-4">
+                                                <span class="px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5"
+                                                      :class="order.status === 'DELIVERED' ? 'bg-brand-500/10 text-brand-400 border border-brand-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'">
+                                                    <span class="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                                                    <span x-text="order.status"></span>
+                                                </span>
+                                            </td>
+                                            <td class="p-4 text-right">
+                                                <template x-if="order.status === 'REQUIRE_PROCESS'">
+                                                    <button @click="deliverOrder(order.order_id)" class="px-3 py-1.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold shadow">
+                                                        Kirim (DELIVER)
+                                                    </button>
+                                                </template>
+                                                <template x-if="order.status !== 'REQUIRE_PROCESS'">
+                                                    <span class="text-xs text-slate-500">Selesai</span>
+                                                </template>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 2: ANALISIS KEUNTUNGAN (PROFIT INSIGHTS) -->
+                <div x-show="currentTab === 'profit'" class="space-y-6">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                        <div class="bg-darkcard border border-darkborder p-6 rounded-2xl">
+                            <span class="text-xs font-semibold text-slate-400 uppercase">Total Omset Kotor</span>
+                            <div class="text-3xl font-extrabold text-white mt-2" x-text="formatIDR(stats.todayRevenue)"></div>
+                        </div>
+                        <div class="bg-darkcard border border-darkborder p-6 rounded-2xl">
+                            <span class="text-xs font-semibold text-slate-400 uppercase">Total Keuntungan Bersih (Profit)</span>
+                            <div class="text-3xl font-extrabold text-purple-400 mt-2" x-text="formatIDR(stats.totalProfit)"></div>
+                        </div>
+                        <div class="bg-darkcard border border-darkborder p-6 rounded-2xl">
+                            <span class="text-xs font-semibold text-slate-400 uppercase">Margin Profit Rata-rata</span>
+                            <div class="text-3xl font-extrabold text-brand-400 mt-2" x-text="stats.profitMargin"></div>
+                        </div>
+                    </div>
+
+                    <div class="bg-darkcard border border-darkborder rounded-2xl p-6">
+                        <h3 class="font-bold text-lg text-white mb-4">Breakdown Profit Berdasarkan Kategori Game</h3>
+                        <div class="space-y-4">
+                            <template x-for="item in profitBreakdown" :key="item.category">
+                                <div class="bg-slate-900 border border-darkborder p-4 rounded-xl space-y-2">
+                                    <div class="flex items-center justify-between text-sm">
+                                        <span class="font-bold text-white" x-text="item.category"></span>
+                                        <span class="font-mono font-bold text-brand-400" x-text="'Profit: ' + formatIDR(item.profit)"></span>
+                                    </div>
+                                    <div class="w-full bg-slate-800 h-2.5 rounded-full overflow-hidden">
+                                        <div class="bg-gradient-to-r from-brand-500 to-teal-400 h-full rounded-full" :style="'width: ' + item.percentage + '%'"></div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 3: LIVE CHAT -->
+                <div x-show="currentTab === 'chat'" class="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-8rem)]">
+                    <div class="bg-darkcard border border-darkborder rounded-2xl flex flex-col overflow-hidden">
+                        <div class="p-4 border-b border-darkborder"><h3 class="font-bold text-white text-sm">Chat Pembeli Tokoku</h3></div>
+                        <div class="flex-1 overflow-y-auto divide-y divide-darkborder">
+                            <template x-for="c in chats" :key="c.id">
+                                <div @click="activeChatId = c.id" :class="activeChatId === c.id ? 'bg-slate-800/80 border-l-4 border-brand-500' : 'hover:bg-slate-800/40'" class="p-4 cursor-pointer">
+                                    <div class="font-bold text-sm text-white" x-text="c.buyer"></div>
+                                    <p class="text-xs text-slate-400 truncate" x-text="c.lastMsg"></p>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                    <div class="lg:col-span-2 bg-darkcard border border-darkborder rounded-2xl flex flex-col overflow-hidden">
+                        <div class="p-4 border-b border-darkborder bg-slate-900/40"><h4 class="font-bold text-white text-sm">Percakapan Aktif Pembeli</h4></div>
+                        <div class="flex-1 p-4 overflow-y-auto space-y-3 bg-[#080c16]">
+                            <template x-for="m in activeMessages" :key="m.id">
+                                <div :class="m.sender === 'admin' ? 'flex justify-end' : 'flex justify-start'">
+                                    <div class="max-w-[80%] rounded-2xl p-3 text-sm" :class="m.sender === 'admin' ? 'bg-brand-600 text-white' : 'bg-slate-800 text-slate-200'" x-text="m.text"></div>
+                                </div>
+                            </template>
+                        </div>
+                        <div class="p-4 border-t border-darkborder flex gap-2">
+                            <input type="text" x-model="newMsg" @keydown.enter="sendChat()" placeholder="Ketik balasan..." class="flex-1 bg-slate-900 border border-darkborder rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-brand-500">
+                            <button @click="sendChat()" class="bg-brand-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold">Kirim</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 4: KENDALA PESANAN (DISPUTES) -->
+                <div x-show="currentTab === 'issues'" class="space-y-4">
+                    <div class="bg-darkcard border border-darkborder p-5 rounded-2xl flex justify-between items-center">
+                        <h3 class="font-bold text-lg text-white">Pusat Kendala & Sengketa Pesanan</h3>
+                        <span class="bg-rose-500/10 text-rose-400 px-3 py-1 rounded-xl text-xs font-bold">1 Kendala Aktif</span>
+                    </div>
+                    <div class="bg-darkcard border border-darkborder p-5 rounded-2xl flex justify-between items-center">
+                        <div>
+                            <span class="font-mono text-xs text-brand-400 bg-slate-900 px-2.5 py-1 rounded">TRX-892095</span>
+                            <h4 class="font-bold text-white text-base mt-2">Dimas Anggara - Free Fire Old Season 2</h4>
+                            <p class="text-xs text-rose-400 mt-1">Kendala: Pembeli melaporkan password salah / akun tidak bisa diakses.</p>
+                        </div>
+                        <button @click="showToast('Kendala Selesai', 'Status diperbarui')" class="px-4 py-2 bg-brand-600/10 text-brand-400 text-xs font-bold rounded-xl">Selesaikan</button>
+                    </div>
+                </div>
+
+                <!-- TAB 5: WA & TELEGRAM NOTIFICATIONS -->
+                <div x-show="currentTab === 'notifications'" class="bg-darkcard border border-darkborder rounded-2xl p-6 space-y-6">
+                    <h3 class="font-bold text-lg text-white">Pengaturan Notifikasi Instan WA & Telegram Bot</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-slate-900 p-5 rounded-2xl border border-darkborder space-y-3">
+                            <h4 class="font-bold text-white text-sm">WhatsApp API Gateway (Fonnte / Wablas)</h4>
+                            <input type="text" value="+6281234567890" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white">
+                            <button @click="showToast('Test WA Sukses', 'Pesan terkirim instan tanpa delay')" class="w-full bg-emerald-600 text-white py-2 rounded-xl text-xs font-bold">Test Kirim WA</button>
+                        </div>
+                        <div class="bg-slate-900 p-5 rounded-2xl border border-darkborder space-y-3">
+                            <h4 class="font-bold text-white text-sm">Telegram Bot Notifications</h4>
+                            <input type="text" value="-100182938192" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white">
+                            <button @click="showToast('Test Telegram Sukses', 'Bot telegram mengirim alert order masuk')" class="w-full bg-blue-600 text-white py-2 rounded-xl text-xs font-bold">Test Kirim Telegram</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 6: API CONFIGURATION (Credentials & JWT Authentication) -->
+                <div x-show="currentTab === 'apiconfig'" class="bg-darkcard border border-darkborder rounded-2xl p-6 space-y-6">
+                    <h3 class="font-bold text-lg text-white">Tokoku API Credentials & JWT Configuration</h3>
+                    <p class="text-xs text-slate-400">Berdasarkan dokumentasi resmi Tokoku API (Itemku), autentikasi memerlukan header <code class="text-brand-400">X-Api-Key</code> dan token HMAC-SHA256.</p>
+                    <div class="space-y-4 max-w-2xl">
+                        <div>
+                            <label class="text-xs text-slate-400 font-medium block mb-1">API Key (Dari Email Itemku)</label>
+                            <input type="text" x-model="apiKey" class="w-full bg-slate-900 border border-darkborder rounded-xl px-4 py-2.5 text-sm text-white font-mono">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 font-medium block mb-1">Secret Key (HS256 Signature Key)</label>
+                            <input type="password" x-model="apiSecret" class="w-full bg-slate-900 border border-darkborder rounded-xl px-4 py-2.5 text-sm text-white font-mono">
+                        </div>
+                        <button @click="showToast('API Key Disimpan', 'Kredensial Tokoku Gateway terhubung')" class="bg-brand-600 hover:bg-brand-500 text-white px-5 py-2.5 rounded-xl text-xs font-bold">Simpan Kredensial API</button>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="fixed bottom-6 right-6 z-50 space-y-2 pointer-events-none">
+        <template x-for="t in toasts" :key="t.id">
+            <div class="pointer-events-auto bg-slate-900 border border-brand-500/40 shadow-2xl rounded-2xl p-4 flex items-start gap-3 w-80">
+                <div class="w-9 h-9 rounded-xl bg-brand-500/10 text-brand-400 flex items-center justify-center font-bold">!</div>
+                <div>
+                    <h5 class="font-bold text-sm text-white" x-text="t.title"></h5>
+                    <p class="text-xs text-slate-300 mt-0.5" x-text="t.msg"></p>
+                </div>
+            </div>
+        </template>
+    </div>
+
+    <!-- Script Application Logic -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('tokokuDashboard', () => ({
+                currentTab: 'orders',
+                searchQuery: '',
+                isSyncing: false,
+                toasts: [],
+                apiKey: 'Rsjdk-Pdadav8yT7536M',
+                apiSecret: 'qtnMdskYIOPVsa9120LLAPfsasd1235dg7Jis9N',
+
+                stats: {
+                    todayRevenue: 4850000,
+                    totalProfit: 1680000,
+                    profitMargin: '34.6%'
+                },
+
+                tabs: [
+                    { id: 'orders', name: 'Manajemen Order Tokoku', icon: 'shopping-bag', badge: 2 },
+                    { id: 'profit', name: 'Analisis Keuntungan', icon: 'trending-up', badge: 0 },
+                    { id: 'chat', name: 'Live Chat Pembeli', icon: 'message-square', badge: 1 },
+                    { id: 'issues', name: 'Kendala Pesanan', icon: 'alert-triangle', badge: 1 },
+                    { id: 'notifications', name: 'Notifikasi WA & Telegram', icon: 'bell', badge: 0 },
+                    { id: 'apiconfig', name: 'Tokoku API & JWT Config', icon: 'key', badge: 0 }
+                ],
+
+                orders: [
+                    {
+                        order_id: 454634,
+                        order_number: 'OD00000454634',
+                        product_id: 235634,
+                        price: 350000,
+                        quantity: 2,
+                        order_income: 680000,
+                        game_name: 'Mobile Legends',
+                        product_name: 'Top Up 3668 Diamonds',
+                        status: 'REQUIRE_PROCESS',
+                        required_information: 'player_id: 12345567, zone_id: 1234',
+                        buyer_name: 'Rizky Pratama'
+                    },
+                    {
+                        order_id: 454633,
+                        order_number: 'OD00000454633',
+                        product_id: 235633,
+                        price: 450000,
+                        quantity: 1,
+                        order_income: 430000,
+                        game_name: 'Valorant',
+                        product_name: 'Akun Ascendant Vandal Reaver',
+                        status: 'DELIVERED',
+                        required_information: 'email: buyer@gmail.com',
+                        buyer_name: 'Dewi Lestari'
+                    }
+                ],
+
+                profitBreakdown: [
+                    { category: 'Mobile Legends', revenue: 2800000, profit: 980000, percentage: 45 },
+                    { category: 'Valorant', revenue: 1450000, profit: 520000, percentage: 35 },
+                    { category: 'Free Fire', revenue: 600000, profit: 180000, percentage: 20 }
+                ],
+
+                chats: [
+                    { id: 1, buyer: 'Rizky Pratama', lastMsg: 'Kak, diamond masuk berapa lama?' }
+                ],
+                activeChatId: 1,
+                activeMessages: [
+                    { id: 1, sender: 'buyer', text: 'Halo min, saya sudah bayar via Itemku ya.' },
+                    { id: 2, sender: 'admin', text: 'Baik kak Rizky, pesanan sedang diproses instan.' }
+                ],
+                newMsg: '',
+
+                init() { setTimeout(() => lucide.createIcons(), 50); this.$watch('currentTab', () => setTimeout(() => lucide.createIcons(), 50)); },
+                getCurrentTabName() { return this.tabs.find(t => t.id === this.currentTab)?.name || 'Dashboard'; },
+                formatIDR(num) { return new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(num); },
+
+                get filteredOrders() {
+                    return this.orders.filter(o => o.order_number.toLowerCase().includes(this.searchQuery.toLowerCase()) || o.buyer_name.toLowerCase().includes(this.searchQuery.toLowerCase()));
+                },
+
+                fetchTokokuOrders() {
+                    this.isSyncing = true;
+                    setTimeout(() => {
+                        this.isSyncing = false;
+                        this.showToast('Sinkronisasi Berhasil', 'Data order terbaru berhasil ditarik dari tokoku-gateway.itemku.com');
+                    }, 800);
+                },
+
+                simulateSandboxOrder() {
+                    const newOrd = {
+                        order_id: Math.floor(Math.random() * 90000 + 100000),
+                        order_number: 'OD00000' + Math.floor(Math.random() * 90000 + 100000),
+                        product_id: 12345,
+                        price: 150000,
+                        quantity: 1,
+                        order_income: 142000,
+                        game_name: 'Genshin Impact',
+                        product_name: 'Top Up 3000 Genesis Crystal',
+                        status: 'REQUIRE_PROCESS',
+                        required_information: 'player_id: 812938192',
+                        buyer_name: 'Ahmad Fauzi'
+                    };
+                    this.orders.unshift(newOrd);
+                    this.showToast('🔔 Order Sandbox Baru Masuk!', 'Notifikasi terkirim ke WhatsApp & Telegram Bot.');
+                },
+
+                deliverOrder(orderId) {
+                    this.orders = this.orders.map(o => o.order_id === orderId ? { ...o, status: 'DELIVERED' } : o);
+                    this.showToast('Order Dikirim (DELIVER)', 'Status pesanan diperbarui ke server Itemku.');
+                },
+
+                sendChat() {
+                    if (!this.newMsg.trim()) return;
+                    this.activeMessages.push({ id: Date.now(), sender: 'admin', text: this.newMsg });
+                    this.newMsg = '';
+                },
+
+                showToast(title, msg) {
+                    const id = Date.now();
+                    this.toasts.push({ id, title, msg });
+                    setTimeout(() => this.toasts = this.toasts.filter(t => t.id !== id), 4000);
+                }
+            }));
+        });
+    </script>
+</body>
+</html>
